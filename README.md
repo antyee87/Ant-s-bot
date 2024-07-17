@@ -1,2 +1,2 @@
-# Ant-s-bot
+# Ant-bot
 python practice
