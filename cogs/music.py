@@ -16,7 +16,6 @@ import math
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.play_next.start()
         self.voice_clients = {}  # 存储每个服务器的语音客户端
         self.playlists = {}  # 存储每个服务器的播放列表
         self.vote_info = {}  # 存储每个服务器的投票信息
@@ -31,40 +30,33 @@ class Music(commands.Cog):
             file_path = os.path.join("downloads", filename)
             shutil.rmtree(file_path)  # 删除文件夹及其所有内容
 
-    async def download(self, url, mode, guild_id):
-        if not os.path.exists(f"downloads/{guild_id}"):
-            os.makedirs(f"downloads/{guild_id}")
-        
+    async def add_playlists(self, url, mode, guild_id):  
         if self.playlist_regex.match(url): 
             pl = Playlist(url)
-            for video in pl.videos:
-                ys = video.streams.get_audio_only()
-                filepath = await asyncio.to_thread(ys.download, f"downloads/{guild_id}")
-                filename, ext = os.path.splitext(os.path.basename(filepath))
-                if mode == "append":
-                    self.playlists[guild_id].append(filename)
-                elif mode == "appendleft":
-                    self.playlists[guild_id].append(filename)
+            for video in pl.videos:  
+                self.playlists[guild_id]['title'].append(video.title)
+                self.playlists[guild_id]['url'].append(video.watch_url)
         
         elif self.video_regex.match(url):
-            yt = YouTube(url, on_progress_callback=on_progress)
-            ys = yt.streams.get_audio_only()
-            filepath = await asyncio.to_thread(ys.download, f"downloads/{guild_id}")
-            filename, ext = os.path.splitext(os.path.basename(filepath))
+            video = YouTube(url)
             if mode == "append":
-                self.playlists[guild_id].append(filename)
+                self.playlists[guild_id]['title'].append(video.title)
+                self.playlists[guild_id]['url'].append(url)
             elif mode == "appendleft":
-                self.playlists[guild_id].appendleft(filename)
+                self.playlists[guild_id]['title'].appendleft(video.title)
+                self.playlists[guild_id]['url'].appendleft(url)
 
-    def play_audio(self, vc, filepath):
-        print(f"Attempting to play audio from file: {filepath}")
-        if not os.path.isfile(filepath):
-            raise FileNotFoundError(f"File {filepath}.mp4 not found.")
-        
-        if vc.is_playing():
-            vc.stop()
-
-        vc.play(discord.FFmpegPCMAudio(source=filepath))
+    def play_audio(self,guild_id):       
+        if not os.path.exists(f"downloads/{guild_id}"):
+            os.makedirs(f"downloads/{guild_id}") 
+            
+        yt = YouTube(self.playlists[guild_id]["url"][0], on_progress_callback=on_progress)
+        ys = yt.streams.get_audio_only()
+        filepath = ys.download(f"downloads/{guild_id}")
+            
+        if self.voice_clients[guild_id].is_playing():
+            self.voice_clients[guild_id].stop()
+        self.voice_clients[guild_id].play(discord.FFmpegPCMAudio(source=filepath), after=lambda e: self.play_next(guild_id))
 
     def is_valid_youtube_url(self, url: str) -> bool:
         try:
@@ -81,26 +73,26 @@ class Music(commands.Cog):
         if interaction.user.voice:
             channel = interaction.user.voice.channel
             if guild_id not in self.playlists:
-                self.playlists[guild_id] = deque()
-
+                self.playlists[guild_id]={
+                    "title":deque(),
+                    "url":deque()
+                }
             if url != None:
-                await interaction.response.send_message(f"播放音樂\n{url}")
-
                 if self.is_valid_youtube_url(url):
-                    task1=asyncio.create_task(self.download(url, "appendleft", guild_id))
+                    await interaction.response.send_message(f"播放音樂\n{url}")
+                    await self.add_playlists(url, "appendleft", guild_id)
                 else:
                     await interaction.response.send_message("Invalid YouTube URL or the video is not available.")
             else:
-                await interaction.response.send_message(f"播放音樂\n{self.playlists[guild_id][0]}")
+                await interaction.response.send_message(f"播放音樂\n{self.playlists[guild_id]["title"][0]}")
+
 
             if interaction.guild.voice_client:
                 if interaction.guild.voice_client.channel != channel:
                     await interaction.guild.voice_client.move_to(channel)
             else:
                 self.voice_clients[guild_id] = await channel.connect()
-            task2 = asyncio.create_task(self.play_audio(self.voice_clients[guild_id], f"downloads/{guild_id}/{self.playlists[guild_id][0]}.mp4"))
-            await task1
-            await task2
+            await self.play_audio(guild_id)
         else:
             await interaction.response.send_message("You need to be in a voice channel to use this command.")
 
@@ -117,7 +109,7 @@ class Music(commands.Cog):
     async def skip(self, interaction: discord.Interaction):
         guild_id = interaction.guild.id
         if guild_id in self.voice_clients and self.voice_clients[guild_id].is_playing():
-            await interaction.response.send_message(f"已跳過音樂{self.playlists[guild_id][0]}")
+            await interaction.response.send_message(f"已跳過音樂\n{self.playlists[guild_id]["title"][0]}")
             self.voice_clients[guild_id].stop()
         else:
             await interaction.response.send_message("No music is currently playing.")
@@ -126,11 +118,13 @@ class Music(commands.Cog):
     async def add(self, interaction: discord.Interaction, url: str):
         guild_id = interaction.guild.id
         if guild_id not in self.playlists:
-            self.playlists[guild_id] = deque()
-
+            self.playlists[guild_id]={
+                    "title":deque(),
+                    "url":deque()
+                }
         if self.is_valid_youtube_url(url):
             await interaction.response.send_message(f"加入音樂\n{url}")
-            await self.download(url, "append", guild_id)
+            await self.add_playlists(url, "append", guild_id)
         else:
             await interaction.response.send_message("Invalid YouTube URL or the video is not available.")
 
@@ -138,12 +132,13 @@ class Music(commands.Cog):
     async def remove(self, interaction: discord.Interaction):
         guild_id = interaction.guild.id
         
-        if guild_id not in self.playlists or not self.playlists[guild_id]:
+        if guild_id not in self.playlists or not self.playlists[guild_id]["title"]:
             await interaction.response.send_message("播放清單為空")
             return
         else:
             self.voice_clients[guild_id].stop()
-            self.playlists[guild_id].clear()
+            self.playlists[guild_id]["title"].clear()
+            self.playlists[guild_id]["url"].clear()
             await interaction.response.send_message("清除全部播放清單")          
             
             
@@ -152,36 +147,36 @@ class Music(commands.Cog):
     async def list(self, interaction: discord.Interaction, page: int):
         guild_id = interaction.guild.id
         if guild_id not in self.playlists:
-            self.playlists[guild_id] = deque()
-
-        embed = discord.Embed(title="播放清單", description=f"第 {page} 頁(共{math.ceil(len(self.playlists[guild_id])/10)}頁)", color=0x0000ff)
-        show_list = []
+            self.playlists[guild_id]={
+                    "title":deque(),
+                    "url":deque()
+                }
+        embed = discord.Embed(title="播放清單", description=f"第 {page} 頁(共{math.ceil(len(self.playlists[guild_id]["title"])/10)}頁)", color=0x0000ff)
         for a in range((page - 1) * 10, page * 10):
-            if a < len(self.playlists[guild_id]):
+            if a < len(self.playlists[guild_id]["title"]):
                 if a == 0:
-                    show_list.append(f"{a + 1}. {self.playlists[guild_id][a]}    (正在播放)")
+                    embed.add_field(name="",value=f"{a + 1}. [{self.playlists[guild_id]["title"][a]}]({self.playlists[guild_id]["url"][a]})    (正在播放)",inline=False)
                 else:
-                    show_list.append(f"{a + 1}. {self.playlists[guild_id][a]}")
+                    embed.add_field(name="",value=f"{a + 1}. [{self.playlists[guild_id]["title"][a]}]({self.playlists[guild_id]["url"][a]})", inline=False)
             else:
                 break
-
-        for item in show_list:
-            embed.add_field(name=item, value="", inline=False)
-
+        
         await interaction.response.send_message(embed=embed)
 
-    @tasks.loop(seconds=1)
-    async def play_next(self):
+    def play_next(self,guild_id):
         try:
-            for guild_id, vc in self.voice_clients.items():
-                if vc.is_connected() and not vc.is_playing() and self.playlists[guild_id]:
-                    file_to_remove = self.playlists[guild_id][0]
-                    self.playlists[guild_id].popleft()
-                    if file_to_remove not in self.playlists[guild_id]:
-                        os.remove(f"downloads/{guild_id}/{file_to_remove}.mp4")
-                        print(f"Removed {guild_id}/{file_to_remove}.mp4")
-                    if self.playlists[guild_id]:
-                        self.play_audio(vc, f"downloads/{guild_id}/{self.playlists[guild_id][0]}.mp4")
+            if self.playlists[guild_id]["title"]:
+                if self.voice_clients[guild_id].is_connected() and not self.voice_clients[guild_id].is_playing():
+                    filename = self.playlists[guild_id]["title"][0]
+                    self.playlists[guild_id]["title"].popleft()
+                    self.playlists[guild_id]["url"].popleft()
+                    if filename not in self.playlists[guild_id]["title"]:
+                        os.remove(f"downloads/{guild_id}/{filename}.mp4")
+                        print(f"Removed {guild_id}/{filename}.mp4")
+                    self.play_audio(guild_id)
+                else:
+                    self.voice_clients[guild_id].disconnect()
+                
         except Exception as e:
             print(f"Error in play_next loop: {e}")
 
