@@ -201,12 +201,13 @@ class Music(commands.Cog):
     @tasks.loop(seconds=10)
     async def remove_file(self):
         for guild_id in self.playlists:
-            #if not self.playlists[guild_id]["title"]:
-            #    await self.voice_clients[guild_id].disconnect()
             for filename in os.listdir(f"downloads/{guild_id}"):
-                if filename[:-4] not in self.playlists[guild_id]["title"]:
-                    file_path = os.path.join(f"downloads/{guild_id}", filename)
-                    os.remove(file_path)
+                if not filename[:-4] in self.playlists[guild_id]["title"]:
+                    try:
+                        file_path = os.path.join(f"downloads/{guild_id}", filename)
+                        os.remove(file_path)
+                    except Exception as e:
+                        print(e)
         
     @app_commands.command(name="vote_skip", description="發起後20秒內音樂頻道有超過1/4使用者同意且同意人數大於反對人數就跳過音樂")
     async def vote_skip(self, interaction: discord.Interaction):
