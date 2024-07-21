@@ -33,7 +33,7 @@ class Music(commands.Cog):
             file_path = os.path.join("downloads", filename)
             shutil.rmtree(file_path)  # 删除文件夹及其所有内容
 
-    async def add_playlists(self, url, mode, guild_id):  
+    async def add_playlists(self, url, mode, guild_id,index=1):  
         def process_playlist():
             pl = Playlist(url)
             a=0
@@ -44,11 +44,18 @@ class Music(commands.Cog):
                     if a==0:
                         if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]:
                             self.voice_clients[guild_id].stop()
-                else:
+                elif mode=="append":
                     self.playlists[guild_id]['title'].append(video.title)
                     self.playlists[guild_id]['url'].append(video.watch_url)
+                elif mode=="insert":
+                    self.playlists[guild_id]['title'].insert(index+a,video.title)
+                    self.playlists[guild_id]['url'].insert(index+a,video.watch_url)
                 a+=1  
-                    
+        if guild_id not in self.playlists:
+                self.playlists[guild_id]={
+                        "title":deque(),
+                        "url":deque()
+                    }     
         if self.playlist_regex.match(url): 
             await asyncio.to_thread(process_playlist)
         
@@ -57,11 +64,15 @@ class Music(commands.Cog):
             if mode == "append":
                 self.playlists[guild_id]['title'].append(video.title)
                 self.playlists[guild_id]['url'].append(url)
-            else:
+            elif mode=="append":
                 self.playlists[guild_id]['title'].appendleft(video.title)
                 self.playlists[guild_id]['url'].appendleft(url)  
                 if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]:
                         self.voice_clients[guild_id].stop()
+            elif mode=="insert":
+                self.playlists[guild_id]['title'].insert(index,video.title)
+                self.playlists[guild_id]['url'].insert(index,url)
+            
                             
             
     def play_audio(self,guild_id):     
@@ -93,17 +104,12 @@ class Music(commands.Cog):
         guild_id = interaction.guild.id
         if interaction.user.voice:
             channel = interaction.user.voice.channel
-            if guild_id not in self.playlists:
-                self.playlists[guild_id]={
-                    "title":deque(),
-                    "url":deque()
-                }
             if url != None:
                 if self.is_valid_youtube_url(url):
                     await interaction.response.send_message(f"播放音樂\n{url}")
                     asyncio.create_task(self.add_playlists(url, "appendleft", guild_id))
                 else:
-                    await interaction.response.send_message("Invalid YouTube URL or the video is not available.")
+                    await interaction.response.send_message("無效輸入")
                     return
             else:
                 if self.voice_clients[guild_id].is_playing():
@@ -120,7 +126,7 @@ class Music(commands.Cog):
 
             asyncio.create_task(self.play_audio(guild_id))
         else:
-            await interaction.response.send_message("You need to be in a voice channel to use this command.")
+            await interaction.response.send_message("你尚未連接到任何聲音頻道")
 
     @app_commands.command(name="leave", description="離開語音頻道(會保留播放清單)")
     async def leave(self, interaction: discord.Interaction):
@@ -129,7 +135,7 @@ class Music(commands.Cog):
             await self.voice_clients[guild_id].disconnect()
             await interaction.response.send_message("機器人已離開語音頻道QwQ")
         else:
-            await interaction.response.send_message("Not connected to a voice channel.")
+            await interaction.response.send_message("機器人尚未連接到任何聲音頻道")
 
     @app_commands.command(name="skip", description="跳過當前音樂")
     async def skip(self, interaction: discord.Interaction):
@@ -138,23 +144,26 @@ class Music(commands.Cog):
             await interaction.response.send_message(f"已跳過音樂\n{self.playlists[guild_id]["title"][0]}")
             self.voice_clients[guild_id].stop()
         else:
-            await interaction.response.send_message("No music is currently playing.")
+            await interaction.response.send_message("目前沒有音樂正在播放")
 
     @app_commands.command(name="add", description="將youtube音樂(播放清單)加入播放清單")
-    @app_commands.describe(url="可以加入歌曲或播放清單")
-    async def add(self, interaction: discord.Interaction, url: str):
+    @app_commands.describe(url="可以加入歌曲或播放清單",index="從第幾首歌後開始加")
+    async def add(self, interaction: discord.Interaction, url: str,index:Optional[int]=None):
         guild_id = interaction.guild.id
-        if guild_id not in self.playlists:
-            self.playlists[guild_id]={
-                    "title":deque(),
-                    "url":deque()
-                }
-        if self.is_valid_youtube_url(url):
-            await interaction.response.send_message(f"加入音樂\n{url}")
-            await self.add_playlists(url, "append", guild_id)
+        if index == None:
+            if self.is_valid_youtube_url(url):
+                await interaction.response.send_message(f"加入音樂\n{url}")
+                await self.add_playlists(url, "append", guild_id)
+            else:
+                await interaction.response.send_message("無效輸入")
         else:
-            await interaction.response.send_message("Invalid YouTube URL or the video is not available.")
-
+            if index >=1 and index <= len(self.playlists[guild_id]["title"]):
+                await interaction.response.send_message(f"加入音樂\n{url}")
+                await self.add_playlists(url, "insert", guild_id,index)
+            else:
+                await interaction.response.send_message("無效輸入")
+                
+            
     @app_commands.command(name="remove", description="清除播放清單")
     async def remove(self, interaction: discord.Interaction):
         guild_id = interaction.guild.id
@@ -249,7 +258,7 @@ class Music(commands.Cog):
             await interaction.response.send_message(view=view)
             self.bot.loop.create_task(self.vote_end(interaction, guild_id))
         else:
-            await interaction.response.send_message("You need to be in a voice channel and play music to use this command.")
+            await interaction.response.send_message("你尚未連接到任何音樂頻道")
 
     async def vote_callback(self, interaction: discord.Interaction, guild_id: int, vote_type: str):
         await interaction.response.send_message(f"等待中！還有{int(20-(time.time()-self.start_time))}秒", ephemeral=True)
