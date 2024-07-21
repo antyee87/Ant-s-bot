@@ -19,7 +19,7 @@ class Music(commands.Cog):
         self.voice_clients = {}  # 存储每个服务器的语音客户端
         self.playlists = {}  # 存储每个服务器的播放列表
         self.vote_info = {}  # 存储每个服务器的投票信息
-        self.await_remove=[]
+        self.await_playing=[]
         self.playing={}
         self.remove_file.start()
         self.video_regex = re.compile(
@@ -60,6 +60,8 @@ class Music(commands.Cog):
             else:
                 self.playlists[guild_id]['title'].appendleft(video.title)
                 self.playlists[guild_id]['url'].appendleft(url)  
+                if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]:
+                        self.voice_clients[guild_id].stop()
                             
             
     def play_audio(self,guild_id):     
@@ -68,6 +70,9 @@ class Music(commands.Cog):
         yt = YouTube(self.playlists[guild_id]["url"][0], on_progress_callback=on_progress)
         ys = yt.streams.get_audio_only()
         filepath = ys.download(f"downloads/{guild_id}")
+        if guild_id not in self.playlists:
+                self.playlists[guild_id]=deque()
+        self.playlists[guild_id].append(os.path.basename(filepath))
         self.playing[guild_id]=self.playlists[guild_id]["title"][0]
         self.voice_clients[guild_id].play(discord.FFmpegPCMAudio(source=filepath), after = lambda e:self.after_playing(guild_id))
         
@@ -165,7 +170,7 @@ class Music(commands.Cog):
             
     
     @app_commands.command(name="list", description="顯示播放清單")
-    async def list(self, interaction: discord.Interaction, page: int):
+    async def list(self, interaction: discord.Interaction, page:Optional[int]=1):
         guild_id = interaction.guild.id
         if guild_id not in self.playlists:
             self.playlists[guild_id]={
@@ -191,6 +196,7 @@ class Music(commands.Cog):
         if self.voice_clients[guild_id].is_connected() and self.playlists[guild_id]["title"][0]==self.playing[guild_id]:  
             self.playlists[guild_id]["title"].popleft()
             self.playlists[guild_id]["url"].popleft()
+            self.await_playing[guild_id].popleft()
         
         if self.playlists[guild_id]["title"]:
             self.play_audio(guild_id)
@@ -198,11 +204,11 @@ class Music(commands.Cog):
             asyncio.run_coroutine_threadsafe(disconnect(), self.bot.loop)
             
                 
-    @tasks.loop(seconds=10)
+    @tasks.loop(minutes=3)
     async def remove_file(self):
         for guild_id in self.playlists:
             for filename in os.listdir(f"downloads/{guild_id}"):
-                if not filename[:-4] in self.playlists[guild_id]["title"]:
+                if not filename in self.await_playing[guild_id]:
                     try:
                         file_path = os.path.join(f"downloads/{guild_id}", filename)
                         os.remove(file_path)

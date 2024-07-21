@@ -51,47 +51,57 @@ class Test(commands.Cog):
     @app_commands.command(name="nanb",description="幾A幾B")
     async def nAnB(self,interaction:discord.Interaction,player_guess:str):
         guild_id=interaction.guild_id
-        if not guild_id in self.nAnB:
-            self.nAnB[guild_id] = {
-                "count": 0,
-                "number": self.nAnB_number_generate()
-            }
-        int_player_guess=int(player_guess)
-        if int_player_guess>=0 and int_player_guess<=9999:
-            await interaction.response.send_message(f"猜測{player_guess}")
-            player_guess_arr=[-1,-1,-1,-1]
-            for i in range(3,-1,-1):
-                player_guess_copy=int_player_guess
-                player_guess_arr[3-i]=int(player_guess_copy/pow(10,i))
-                int_player_guess%=pow(10,i)
-            self.nAnB[guild_id]["count"]+=1
-            check_list=["N" for i in range(4)]
-            for i in range(4):
-                if player_guess_arr[i]==self.nAnB[guild_id]["number"][i]:
-                    check_list[i]="A"
-            for a in range(4):
-                if check_list[a]=="A":
-                    continue
-                else:
-                    for b in range(4):
-                        if self.nAnB[guild_id]["number"][a]==player_guess_arr[b]:
-                            check_list[a]="B"
-                            break
-            A_count=0
-            B_count=0
-            for i in range(4):
-                if check_list[i]=="A":
-                    A_count+=1
-                elif check_list[i]=="B":
-                    B_count+=1
-            await interaction.channel.send(f"{A_count}A{B_count}B")
-            if A_count==4:
-                await interaction.channel.send(f"遊戲勝利 猜了{self.nAnB[guild_id]["count"]}次")
-                self.nAnB[guild_id]["number"]=self.nAnB_number_generate()
-                self.nAnB[guild_id]["count"]=0
-                await interaction.channel.send(f"數字刷新")
+        if player_guess.isdigit():
+            if not guild_id in self.nAnB:
+                self.nAnB[guild_id] = {
+                    "count": 0,
+                    "number": self.nAnB_number_generate()
+                }
+            int_player_guess=int(player_guess)
+            if int_player_guess>=0 and int_player_guess<=9999:
+                await interaction.response.send_message(f"猜測{player_guess}")
+                player_guess_arr=[-1,-1,-1,-1]
+                for i in range(3,-1,-1):
+                    player_guess_copy=int_player_guess
+                    player_guess_arr[3-i]=int(player_guess_copy/pow(10,i))
+                    int_player_guess%=pow(10,i)
+                self.nAnB[guild_id]["count"]+=1
+                check_list=["N" for i in range(4)]
+                for i in range(4):
+                    if player_guess_arr[i]==self.nAnB[guild_id]["number"][i]:
+                        check_list[i]="A"
+                for a in range(4):
+                    if check_list[a]=="A":
+                        continue
+                    else:
+                        for b in range(4):
+                            if self.nAnB[guild_id]["number"][a]==player_guess_arr[b]:
+                                check_list[a]="B"
+                                break
+                A_count=0
+                B_count=0
+                for i in range(4):
+                    if check_list[i]=="A":
+                        A_count+=1
+                    elif check_list[i]=="B":
+                        B_count+=1
+                await interaction.channel.send(f"{A_count}A{B_count}B")
+                if A_count==4:
+                    await interaction.channel.send(f"遊戲勝利 猜了{self.nAnB[guild_id]["count"]}次")
+                    self.nAnB[guild_id]["number"]=self.nAnB_number_generate()
+                    self.nAnB[guild_id]["count"]=0
+                    await interaction.channel.send(f"數字刷新")
+            else:
+                await interaction.response.send_message("無效輸入")
         else:
             await interaction.response.send_message("無效輸入")
+    @app_commands.command(name="nanb_giveup",description="我放棄猜幾A幾B")
+    async def nAnB_giveup(self,interaction:discord.Interaction):
+        guild_id=interaction.guild_id
+        if not guild_id in self.nAnB:
+            await interaction.response.send_message("你根本還沒開始猜= =")
+        else:
+            await interaction.response.send_message(f"答案:{self.nAnB[guild_id]["number"]}")
             
         
 async def setup(bot:commands.bot):
