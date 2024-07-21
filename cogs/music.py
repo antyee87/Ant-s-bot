@@ -19,7 +19,7 @@ class Music(commands.Cog):
         self.voice_clients = {}  # 存储每个服务器的语音客户端
         self.playlists = {}  # 存储每个服务器的播放列表
         self.vote_info = {}  # 存储每个服务器的投票信息
-        self.await_playing=[]
+        self.await_playing={}
         self.playing={}
         self.remove_file.start()
         self.video_regex = re.compile(
@@ -70,9 +70,10 @@ class Music(commands.Cog):
         yt = YouTube(self.playlists[guild_id]["url"][0], on_progress_callback=on_progress)
         ys = yt.streams.get_audio_only()
         filepath = ys.download(f"downloads/{guild_id}")
-        if guild_id not in self.playlists:
-                self.playlists[guild_id]=deque()
-        self.playlists[guild_id].append(os.path.basename(filepath))
+        
+        if guild_id not in self.await_playing:
+                self.await_playing[guild_id]=deque()
+        self.await_playing[guild_id].append(os.path.basename(filepath))
         self.playing[guild_id]=self.playlists[guild_id]["title"][0]
         self.voice_clients[guild_id].play(discord.FFmpegPCMAudio(source=filepath), after = lambda e:self.after_playing(guild_id))
         
