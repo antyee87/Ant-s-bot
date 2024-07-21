@@ -7,7 +7,7 @@ class Greet(commands.Cog):
     
     @commands.Cog.listener()
     async def on_message(self,message:discord.Message):
-        if message.author != self.bot.user and message.author.id!=1263129122968699033:
+        if not message.author.bot:
             if str.lower(message.content) == "hello" :
                 await message.channel.send("Hello")
             if str.lower(message.content) == "ez" :
