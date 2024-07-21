@@ -61,14 +61,14 @@ class Music(commands.Cog):
         
         elif self.video_regex.match(url):
             video = YouTube(url)
-            if mode == "append":
-                self.playlists[guild_id]['title'].append(video.title)
-                self.playlists[guild_id]['url'].append(url)
-            elif mode=="append":
+            if mode == "appendleft":
                 self.playlists[guild_id]['title'].appendleft(video.title)
                 self.playlists[guild_id]['url'].appendleft(url)  
                 if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]:
                         self.voice_clients[guild_id].stop()
+            elif mode=="append":
+                self.playlists[guild_id]['title'].append(video.title)
+                self.playlists[guild_id]['url'].append(url)
             elif mode=="insert":
                 self.playlists[guild_id]['title'].insert(index,video.title)
                 self.playlists[guild_id]['url'].insert(index,url)
