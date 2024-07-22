@@ -36,7 +36,7 @@ class Music(commands.Cog):
             file_path = os.path.join("downloads", filename)
             shutil.rmtree(file_path)  # 删除文件夹及其所有内容
 
-    async def add_playlists(self, url, mode, guild_id,index=1):  
+    async def add_playlists(self, url, mode, guild_id,index=None):  
         def process_playlist():
             pl = Playlist(url)
             a=0
@@ -185,7 +185,7 @@ class Music(commands.Cog):
             if index >=1 and index <= len(self.playlists[guild_id]["title"]):
                 if self.is_valid_youtube_url(url):
                     await interaction.response.send_message(f"加入音樂\n{url}")
-                    await self.add_playlists(url, "inesert", guild_id,index)
+                    await self.add_playlists(url,"insert", guild_id,index)
                 else:
                     await interaction.response.send_message("無效輸入")
             else:
