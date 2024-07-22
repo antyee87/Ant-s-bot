@@ -1,6 +1,8 @@
 import discord
 from discord.ext import tasks, commands
 from discord import app_commands
+from discord import FFmpegPCMAudio, PCMVolumeTransformer
+import subprocess
 import os
 import shutil
 from pytubefix import YouTube
@@ -13,20 +15,21 @@ import re
 import time
 from typing import Optional
 import math
+import logging
+
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.voice_clients = {}  # 存储每个服务器的语音客户端
         self.playlists = {}  # 存储每个服务器的播放列表
         self.vote_info = {}  # 存储每个服务器的投票信息
-        self.await_playing={}
         self.playing={}
         self.remove_file.start()
         self.video_regex = re.compile(
-            r'(https?://)?(www\.)?((youtube\.com)|(youtu\.?be))/watch\?v=.+'
+            r'(https?://)?(www\.)?((youtube\.com/watch\?v=)|(youtu\.be/)|(music\.youtube\.com/watch\?v=)).+'
         )
         self.playlist_regex = re.compile(
-            r'(https?://)?(www\.)?((youtube\.com)|(youtu\.?be))/playlist\?list=.+'
+            r'(https?://)?(www\.)?((youtube\.com)|(youtu\.?be)|(music\.youtube\.com))/playlist\?list=.+'
         )
         
         for filename in os.listdir("downloads"):
@@ -42,7 +45,7 @@ class Music(commands.Cog):
                     self.playlists[guild_id]['title'].insert(a,video.title)
                     self.playlists[guild_id]['url'].insert(a,video.watch_url)
                     if a==0:
-                        if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]:
+                        if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]["title"]:
                             self.voice_clients[guild_id].stop()
                 elif mode=="append":
                     self.playlists[guild_id]['title'].append(video.title)
@@ -64,7 +67,7 @@ class Music(commands.Cog):
             if mode == "appendleft":
                 self.playlists[guild_id]['title'].appendleft(video.title)
                 self.playlists[guild_id]['url'].appendleft(url)  
-                if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]:
+                if guild_id in self.playing and self.voice_clients[guild_id].is_playing() and self.playlists[guild_id]["title"][0]!=self.playing[guild_id]["title"]:
                         self.voice_clients[guild_id].stop()
             elif mode=="append":
                 self.playlists[guild_id]['title'].append(video.title)
@@ -73,7 +76,23 @@ class Music(commands.Cog):
                 self.playlists[guild_id]['title'].insert(index,video.title)
                 self.playlists[guild_id]['url'].insert(index,url)
             
-                            
+    def get_mean_volume(self,file_path):
+        result = subprocess.run(
+        ["ffmpeg", "-i", file_path, "-af", "volumedetect", "-vn", "-sn", "-dn", "-f", "null", "/dev/null"],
+        stderr=subprocess.PIPE,
+        text=True
+        )
+        output = result.stderr
+
+        # Regex to find the mean volume from the output
+        mean_match = re.search(r"mean_volume: ([\-\d\.]+) dB", output)
+        
+        if mean_match:
+            mean_volume = float(mean_match.group(1))
+            return mean_volume
+        else:
+            raise ValueError("Could not find volume levels in ffmpeg output")
+ 
             
     def play_audio(self,guild_id):     
         if not os.path.exists(f"downloads/{guild_id}"):
@@ -81,12 +100,18 @@ class Music(commands.Cog):
         yt = YouTube(self.playlists[guild_id]["url"][0], on_progress_callback=on_progress)
         ys = yt.streams.get_audio_only()
         filepath = ys.download(f"downloads/{guild_id}")
-        
-        if guild_id not in self.await_playing:
-                self.await_playing[guild_id]=deque()
-        self.await_playing[guild_id].append(os.path.basename(filepath))
-        self.playing[guild_id]=self.playlists[guild_id]["title"][0]
-        self.voice_clients[guild_id].play(discord.FFmpegPCMAudio(source=filepath), after = lambda e:self.after_playing(guild_id))
+        if guild_id not in self.playing:
+                self.playing[guild_id]={
+                    "title":"",
+                    "filename":""
+                }
+        self.playing[guild_id]["title"]=self.playlists[guild_id]["title"][0]
+        self.playing[guild_id]["filename"]=os.path.basename(filepath)
+        mean_volume=self.get_mean_volume(filepath)
+        relative_volume=round(math.pow(10,(-16-mean_volume)/20),2)
+        source = FFmpegPCMAudio(source=filepath)
+        audio_source = PCMVolumeTransformer(source,volume=relative_volume)
+        self.voice_clients[guild_id].play(audio_source, after = lambda e:self.after_playing(guild_id))
         
         
     def is_valid_youtube_url(self, url: str) -> bool:
@@ -124,9 +149,9 @@ class Music(commands.Cog):
             else:
                 self.voice_clients[guild_id] = await channel.connect()
 
-            asyncio.create_task(self.play_audio(guild_id))
+            self.play_audio(guild_id)
         else:
-            await interaction.response.send_message("你尚未連接到任何聲音頻道")
+            await interaction.response.send_message("你尚未連接到任何語音頻道")
 
     @app_commands.command(name="leave", description="離開語音頻道(會保留播放清單)")
     async def leave(self, interaction: discord.Interaction):
@@ -135,7 +160,7 @@ class Music(commands.Cog):
             await self.voice_clients[guild_id].disconnect()
             await interaction.response.send_message("機器人已離開語音頻道QwQ")
         else:
-            await interaction.response.send_message("機器人尚未連接到任何聲音頻道")
+            await interaction.response.send_message("機器人尚未連接到任何語音頻道")
 
     @app_commands.command(name="skip", description="跳過當前音樂")
     async def skip(self, interaction: discord.Interaction):
@@ -158,8 +183,11 @@ class Music(commands.Cog):
                 await interaction.response.send_message("無效輸入")
         else:
             if index >=1 and index <= len(self.playlists[guild_id]["title"]):
-                await interaction.response.send_message(f"加入音樂\n{url}")
-                await self.add_playlists(url, "insert", guild_id,index)
+                if self.is_valid_youtube_url(url):
+                    await interaction.response.send_message(f"加入音樂\n{url}")
+                    await self.add_playlists(url, "inesert", guild_id,index)
+                else:
+                    await interaction.response.send_message("無效輸入")
             else:
                 await interaction.response.send_message("無效輸入")
                 
@@ -203,10 +231,9 @@ class Music(commands.Cog):
     def after_playing(self,guild_id):
         async def disconnect():
             await self.voice_clients[guild_id].disconnect()
-        if self.voice_clients[guild_id].is_connected() and self.playlists[guild_id]["title"][0]==self.playing[guild_id]:  
+        if self.voice_clients[guild_id].is_connected() and self.playlists[guild_id]["title"][0]==self.playing[guild_id]["title"]:  
             self.playlists[guild_id]["title"].popleft()
             self.playlists[guild_id]["url"].popleft()
-            self.await_playing[guild_id].popleft()
         
         if self.playlists[guild_id]["title"]:
             self.play_audio(guild_id)
@@ -218,12 +245,14 @@ class Music(commands.Cog):
     async def remove_file(self):
         for guild_id in self.playlists:
             for filename in os.listdir(f"downloads/{guild_id}"):
-                if not filename in self.await_playing[guild_id]:
+                if not filename in self.playing[guild_id]["filename"]:
                     try:
                         file_path = os.path.join(f"downloads/{guild_id}", filename)
                         os.remove(file_path)
                     except Exception as e:
-                        print(e)
+                        logging.basicConfig(level=logging.ERROR)
+                        logger = logging.getLogger(__name__)
+                        logger.error(e)
         
     @app_commands.command(name="vote_skip", description="發起後20秒內音樂頻道有超過1/4使用者同意且同意人數大於反對人數就跳過音樂")
     async def vote_skip(self, interaction: discord.Interaction):
